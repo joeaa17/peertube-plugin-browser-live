@@ -1,0 +1,17 @@
+{
+  "name": "peertube-plugin-browser-live",
+  "display_name": "Browser Live Streaming",
+  "description": "Stream directly from your browser without OBS.",
+  "version": "1.0.0",
+  "peertube": ">=7.2.0 <8",
+  "clientScripts": ["./client/index.js"],
+  "server": "./server/index.js",
+  "settings": {
+    "schema": {
+      "enable_browser_stream": {
+        "type": "boolean",
+        "default": true
+      }
+    }
+  }
+}
