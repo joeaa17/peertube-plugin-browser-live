@@ -3,7 +3,7 @@ function register({ registerHook }) {
     target: 'action:video-live.view',
     handler: ({ live, hostElement }) => {
       const btn = document.createElement('button')
-      btn.innerText = '🎥 Go Live with Browser'
+      btn.innerText = 'Go Live with Browser'
       btn.style.marginTop = '10px'
       hostElement.appendChild(btn)
 
