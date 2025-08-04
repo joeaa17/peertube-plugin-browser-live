@@ -1,0 +1,13 @@
+{
+  "name": "peertube-plugin-browser-live",
+  "version": "1.0.0",
+  "description": "Stream directly from browser to PeerTube without OBS.",
+  "library": "./server/main.js",
+  "clientScripts": [{
+    "script": "client/index.js",
+    "scopes": ["live-create"]
+  }],
+  "peertube": {
+    "version": ">=6.0.0"
+  }
+}
