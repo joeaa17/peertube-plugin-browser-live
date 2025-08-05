@@ -9,7 +9,7 @@
   "clientScripts": [
     {
       "script": "dist/client/index.js",
-      "scopes": ["live-create"]
+      "scopes": ["livecreate"]
     }
   ],
   "peertube": {
