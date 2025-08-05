@@ -2,22 +2,29 @@
   "name":        "peertube-plugin-browser-live",
   "version":     "1.0.0",
   "description": "Stream directly from browser to PeerTube without OBS.",
-  "library":     "./dist/server/main.js",     // point at your compiled server code
+  "library":     "./dist/server/main.js",      // ← points at your built server code
   "clientScripts": [
     {
-      "script": "dist/client/index.js",        // point at your compiled client bundle
+      "script": "dist/client/index.js",        // ← points at your built client code
       "scopes": ["live-create"]
     }
   ],
   "peertube": {
-    "version": ">=7.0.0"                       // bump if your plugin needs a newer core
+    "version": ">=7.0.0"
   },
   "scripts": {
     "build":       "npm run build:server && npm run build:client",
-    "build:server":"babel server -d dist/server",
-    "build:client":"webpack --config webpack.config.js -o dist/client"
+    "build:server":"babel src/server -d dist/server",
+    "build:client":"webpack --config webpack.config.js"
   },
   "dependencies": {
-    /* …whatever your plugin needs… */
+    "ws": "^8.0.0"
+  },
+  "devDependencies": {
+    "@babel/cli": "^7.0.0",
+    "@babel/core": "^7.0.0",
+    "@babel/preset-env": "^7.0.0",
+    "webpack": "^5.0.0",
+    "webpack-cli": "^4.0.0"
   }
 }
