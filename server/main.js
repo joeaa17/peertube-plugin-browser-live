@@ -1,9 +1,15 @@
-const { spawn } = require('child_process')
-const WebSocket = require('ws')
-const https = require('https')
+'use strict';
 
-const streams = {}
+const { spawn } = require('child_process');
+const https = require('https');
+const WebSocket = require('ws');
 
+const streams = {};
+
+/**
+ * Verify that the given JWT belongs to a real PeerTube user.
+ * Calls callback(true) if valid, callback(false) otherwise.
+ */
 function verifyToken(token, liveId, callback) {
   const options = {
     hostname: 'localhost',
@@ -13,71 +19,108 @@ function verifyToken(token, liveId, callback) {
     headers: {
       'Authorization': `Bearer ${token}`
     },
-    rejectUnauthorized: false
-  }
+    rejectUnauthorized: false, // allow self-signed
+  };
 
   const req = https.request(options, res => {
-    let data = ''
-    res.on('data', chunk => data += chunk)
+    let body = '';
+    res.on('data', chunk => body += chunk);
     res.on('end', () => {
       try {
-        const user = JSON.parse(data)
-        if (!user || !user.username) return callback(false)
-        // Additional liveId ownership check can be added here
-        return callback(true)
-      } catch {
-        return callback(false)
+        const user = JSON.parse(body);
+        if (user && user.username) {
+          // TODO: add additional ownership check against liveId if needed
+          return callback(true);
+        }
+      } catch (err) {
+        // malformed JSON
       }
-    })
-  })
+      return callback(false);
+    });
+  });
 
-  req.on('error', () => callback(false))
-  req.end()
+  req.on('error', () => callback(false));
+  req.end();
 }
 
-function register({ getRouter, getWebSocketServer, peertubeHelpers }) {
-  const wss = new WebSocket.Server({ noServer: true })
+/**
+ * Called by PeerTube at startup.
+ * @param {Object}   services
+ * @param {Function} services.getWebSocketServer — PeerTube’s HTTP server, to hook into upgrade events
+ */
+function register({ getWebSocketServer }) {
+  const wss = new WebSocket.Server({ noServer: true });
+  const httpServer = getWebSocketServer();
 
-  getWebSocketServer().on('upgrade', (req, socket, head) => {
-    const url = new URL(req.url, `https://${req.headers.host}`)
-    const liveId = url.pathname.split('/').pop()
-    const token = url.searchParams.get('token')
+  // Intercept WebSocket upgrades on our plugin-specific path
+  httpServer.on('upgrade', (req, socket, head) => {
+    // Expect URL: /plugins/browser-live/ws/<liveId>?token=<jwt>
+    const url    = new URL(req.url, `https://${req.headers.host}`);
+    const parts  = url.pathname.split('/');
+    const liveId = parts[parts.length - 1];
+    const token  = url.searchParams.get('token');
 
-    if (!token || !liveId) return socket.destroy()
-
-    verifyToken(token, liveId, isValid => {
-      if (!isValid) return socket.destroy()
-      wss.handleUpgrade(req, socket, head, ws => {
-        ws.liveId = liveId
-        wss.emit('connection', ws, req)
-      })
-    })
-  })
-
-  wss.on('connection', (ws) => {
-    const liveId = ws.liveId
-    if (streams[liveId]) {
-      ws.close()
-      return
+    if (!liveId || !token) {
+      return socket.destroy();
     }
 
+    // Validate the JWT
+    verifyToken(token, liveId, isValid => {
+      if (!isValid) {
+        return socket.destroy();
+      }
+      // Upgrade to WebSocket if valid
+      wss.handleUpgrade(req, socket, head, ws => {
+        ws.liveId = liveId;
+        wss.emit('connection', ws, req);
+      });
+    });
+  });
+
+  // Handle incoming browser streams
+  wss.on('connection', ws => {
+    const liveId = ws.liveId;
+
+    // Only one browser per live session
+    if (streams[liveId]) {
+      ws.close();
+      return;
+    }
+
+    // Spawn ffmpeg to convert WebM chunks (pipe:0) into RTMP
     const ffmpeg = spawn('ffmpeg', [
       '-f', 'webm', '-i', 'pipe:0',
       '-c:v', 'libx264', '-preset', 'veryfast',
-      '-c:a', 'aac', '-f', 'flv',
+      '-c:a', 'aac',
+      '-f', 'flv',
       `rtmp://localhost/live/${liveId}`
-    ])
+    ]);
 
-    ffmpeg.stderr.on('data', data => console.log(`[ffmpeg] ${data}`))
-    ffmpeg.on('close', () => delete streams[liveId])
-    streams[liveId] = ffmpeg
+    streams[liveId] = ffmpeg;
 
-    ws.on('message', chunk => ffmpeg.stdin.write(chunk))
+    ffmpeg.stderr.on('data', chunk => {
+      console.log(`[ffmpeg] ${chunk.toString().trim()}`);
+    });
+
+    ffmpeg.on('close', code => {
+      delete streams[liveId];
+      console.log(`FFmpeg for live ${liveId} exited with code ${code}`);
+    });
+
+    // Forward each incoming WebSocket message (ArrayBuffer) into ffmpeg stdin
+    ws.on('message', data => {
+      if (ffmpeg.stdin.writable) {
+        ffmpeg.stdin.write(Buffer.from(data));
+      }
+    });
+
     ws.on('close', () => {
-      ffmpeg.stdin.end()
-      ffmpeg.kill('SIGINT')
-    })
-  })
+      if (ffmpeg.stdin.writable) {
+        ffmpeg.stdin.end();
+      }
+      ffmpeg.kill('SIGINT');
+    });
+  });
 }
 
-module.exports = { register }
+module.exports = { register };
